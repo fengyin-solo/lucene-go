@@ -752,8 +752,12 @@ func (s *simpleTextDocsEnum) advanceTarget(target int) (int, error) {
 		return 0, err
 	}
 
-	for doc >= target {
-		break
+	// advance until the current document is at or beyond the target
+	for doc < target {
+		doc, err = s.readDoc()
+		if err != nil {
+			return 0, err
+		}
 	}
 	return doc, nil
 }

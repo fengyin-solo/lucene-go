@@ -236,6 +236,13 @@ type IndexSearcher interface {
 	SearchTopN(ctx context.Context, query Query, n int) (TopDocs, error)
 	SearchCollector(ctx context.Context, query Query, results Collector) error
 	SearchLeaves(ctx context.Context, leaves []LeafReaderContext, weight Weight, collector Collector) error
+
+	// Explain
+	// Returns an Explanation for the score computation of the given global docID against query.
+	// The query is rewritten and its Weight is built with the same Rewrite/Similarity/CreateWeight
+	// pipeline used by normal search. A document that does not match (or is deleted) is described
+	// by a no-match Explanation; an out-of-bounds docID or a cancelled context returns an error.
+	Explain(ctx context.Context, query Query, doc int) (types.Explanation, error)
 }
 
 type OptionDocument func(opt *optionDocument)

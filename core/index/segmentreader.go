@@ -142,6 +142,8 @@ func (s *SegmentReader) New(si index.SegmentCommitInfo, liveDocs, hardLiveDocs u
 		return nil, err
 	}
 
+	reader.BaseCodecReader = NewBaseCodecReader(reader)
+
 	fieldInfos, err := reader.initFieldInfos(nil)
 	if err != nil {
 		if err := reader.DoClose(); err != nil {

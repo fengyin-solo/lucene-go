@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ func (c *ConstantScoreWeight) Explain(ctx index.LeafReaderContext, doc int) (typ
 	if s != nil {
 		twoPhase := s.TwoPhaseIterator()
 		if twoPhase == nil {
-			advance, err := s.Iterator().Advance(nil, doc)
+			advance, err := s.Iterator().Advance(context.Background(), doc)
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					return nil, err
@@ -46,16 +47,17 @@ func (c *ConstantScoreWeight) Explain(ctx index.LeafReaderContext, doc int) (typ
 				exists = advance == doc
 			}
 		} else {
-			isMatch, err := twoPhase.Matches()
+			advance, err := twoPhase.Approximation().Advance(context.Background(), doc)
 			if err != nil {
 				return nil, err
 			}
-
-			advance, err := twoPhase.Approximation().Advance(nil, doc)
-			if err != nil {
-				return nil, err
+			if advance == doc {
+				isMatch, err := twoPhase.Matches()
+				if err != nil {
+					return nil, err
+				}
+				exists = isMatch
 			}
-			exists = (advance == doc) && isMatch
 		}
 
 	}

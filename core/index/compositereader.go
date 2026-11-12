@@ -78,10 +78,13 @@ func (b *baseCompositeReader) GetSequentialSubReaders() []index.IndexReader {
 func newBaseCompositeReader(subReaders []index.IndexReader,
 	subReadersSorter func(a, b index.LeafReader) int) (*baseCompositeReader, error) {
 
-	sort.Sort(&ReaderSorter{
-		Readers:   subReaders,
-		FnCompare: subReadersSorter,
-	})
+	// A nil sorter means keep the sub readers in their original order
+	if subReadersSorter != nil {
+		sort.Sort(&ReaderSorter{
+			Readers:   subReaders,
+			FnCompare: subReadersSorter,
+		})
+	}
 
 	reader := &baseCompositeReader{
 		subReaders:       subReaders,

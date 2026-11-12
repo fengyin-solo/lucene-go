@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/geange/gods-generic/sets/treeset"
@@ -62,9 +63,101 @@ func (b *BooleanWeight) ExtractTerms(terms *treeset.Set[index.Term]) error {
 	return nil
 }
 
+// Explain
+// Computes the explanation for doc by combining the explanations of every weighted clause the
+// same way the BooleanScorer combines their scores:
+//   - MUST clauses must match and contribute their score;
+//   - SHOULD clauses contribute their score when they match and minimumNumberShouldMatch
+//     must be satisfied;
+//   - FILTER clauses must match but never contribute to the score;
+//   - MUST_NOT clauses must not match, a matching prohibited clause makes the whole query fail;
+//   - the final score is the sum of the scoring (MUST/SHOULD) clauses.
+//
+// This method never panics: every failure produces an Explanation with IsMatch()==false.
 func (b *BooleanWeight) Explain(ctx index.LeafReaderContext, doc int) (types.Explanation, error) {
-	//TODO implement me
-	panic("implement me")
+	minShouldMatch := b.query.GetMinimumNumberShouldMatch()
+	explanations := make([]types.Explanation, 0)
+	shouldMatchCount := 0
+
+	for _, wc := range b.weightedClauses {
+		w := wc.weight
+		c := wc.clause
+
+		e, err := w.Explain(ctx, doc)
+		if err != nil {
+			return nil, err
+		}
+
+		if e.IsMatch() {
+			if c.IsProhibited() {
+				// a matching prohibited clause prevents the whole boolean query from matching
+				return types.ExplanationNoMatch(
+					fmt.Sprintf("embedded prohibited clause %s matches the document", c.GetQuery().String("")),
+					append(explanations, e)...), nil
+			}
+
+			if c.IsScoring() {
+				explanations = append(explanations, e)
+			} else if c.IsRequired() {
+				// FILTER clause: participates in matching but not in scoring
+				explanations = append(explanations, types.ExplanationMatch(float64(0),
+					fmt.Sprintf("constant score(%v), no scoring provided by filter clause %s",
+						e.GetValue(), c.GetQuery().String("")), e))
+			}
+		} else if c.IsProhibited() {
+			// keep the non-matching prohibited clause as diagnostic detail
+			explanations = append(explanations, e)
+		}
+
+		if c.GetOccur() == index.OccurShould {
+			if e.IsMatch() {
+				shouldMatchCount++
+			}
+		} else if c.IsRequired() && !e.IsMatch() {
+			// a required clause that doesn't match makes the whole boolean query fail
+			return types.ExplanationNoMatch(
+				fmt.Sprintf("Failure %s", c.GetQuery().String("")), explanations...), nil
+		}
+	}
+
+	if shouldMatchCount < minShouldMatch {
+		return types.ExplanationNoMatch(
+			fmt.Sprintf("Failure to meet minimum number of optional clauses. Should match %d clauses but only matched %d.",
+				minShouldMatch, shouldMatchCount),
+			explanations...), nil
+	}
+
+	// a boolean query matches only when at least one positive clause matched
+	anyMatch := false
+	for _, explanation := range explanations {
+		if explanation.IsMatch() {
+			anyMatch = true
+			break
+		}
+	}
+	if !anyMatch {
+		return types.ExplanationNoMatch(
+			fmt.Sprintf("Failure %s, no clause matched document %d", b.query.String(""), doc),
+			explanations...), nil
+	}
+
+	// combine the explanations the way the BooleanScorer would
+	if len(explanations) == 1 {
+		single := explanations[0]
+		if single.IsMatch() {
+			return single, nil
+		}
+	}
+
+	var sum float64
+	for _, explanation := range explanations {
+		if explanation.IsMatch() {
+			if value, ok := explanation.GetValue().(float64); ok {
+				sum += value
+			}
+		}
+	}
+	return types.ExplanationMatch(sum, "sum of:", explanations...), nil
 }
 
 func (b *BooleanWeight) Matches(context index.LeafReaderContext, doc int) (index.Matches, error) {

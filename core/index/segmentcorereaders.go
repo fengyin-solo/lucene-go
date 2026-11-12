@@ -50,7 +50,9 @@ func NewSegmentCoreReaders(ctx context.Context, dir store.Directory, si index.Se
 	// confusing name: if (cfs) it's the cfsdir, otherwise it's the segment's directory.
 	var cfsDir store.Directory
 
-	r := &SegmentCoreReaders{}
+	r := &SegmentCoreReaders{ref: new(atomic.Int64)}
+	// the SegmentReader that creates the core readers holds the initial reference
+	r.ref.Store(1)
 
 	if si.Info().GetUseCompoundFile() {
 		reader, err := codec.CompoundFormat().GetCompoundReader(ctx, dir, si.Info(), ioContext)

@@ -2,8 +2,10 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/geange/gods-generic/sets/treeset"
@@ -107,22 +109,25 @@ func (t *TermWeight) ExtractTerms(terms *treeset.Set[index.Term]) error {
 	return nil
 }
 
-func (t *TermWeight) Explain(context index.LeafReaderContext, doc int) (types.Explanation, error) {
-	scorer, err := t.Scorer(context)
+func (t *TermWeight) Explain(leafContext index.LeafReaderContext, doc int) (types.Explanation, error) {
+	scorer, err := t.Scorer(leafContext)
 	if err != nil {
 		return nil, err
 	}
 	if scorer == nil {
-		return nil, errors.New("no matching term")
+		return types.ExplanationNoMatch("no matching term"), nil
 	}
 
 	tScorer, ok := scorer.(*TermScorer)
 	if !ok {
-		return nil, errors.New("no matching term")
+		return types.ExplanationNoMatch("no matching term"), nil
 	}
 
-	newDoc, err := tScorer.Iterator().Advance(nil, doc)
+	newDoc, err := tScorer.Iterator().Advance(context.Background(), doc)
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return types.ExplanationNoMatch("no matching term"), nil
+		}
 		return nil, err
 	}
 	if newDoc == doc {
@@ -131,7 +136,7 @@ func (t *TermWeight) Explain(context index.LeafReaderContext, doc int) (types.Ex
 			return nil, err
 		}
 
-		docScorer, err := NewLeafSimScorer(t.simScorer, context.Reader().(index.LeafReader), t.term.Field(), true)
+		docScorer, err := NewLeafSimScorer(t.simScorer, leafContext.Reader().(index.LeafReader), t.term.Field(), true)
 		if err != nil {
 			return nil, err
 		}
@@ -142,17 +147,21 @@ func (t *TermWeight) Explain(context index.LeafReaderContext, doc int) (types.Ex
 			return nil, err
 		}
 
-		return types.ExplanationMatch(scoreExplanation.GetValue().(float64),
-			fmt.Sprintf(`weight(%s in %d) [%s]`, t.GetQuery(), doc, reflect.TypeOf(t.similarity).Name()),
+		score, ok := scoreExplanation.GetValue().(float64)
+		if !ok {
+			return nil, errors.New("score explanation value is not a float64")
+		}
+
+		return types.ExplanationMatch(score,
+			fmt.Sprintf(`weight(%s in %d) [%s]`, t.GetQuery().String(""), doc, reflect.TypeOf(t.similarity).Name()),
 			scoreExplanation), nil
 	}
 
-	return nil, errors.New("no matching term")
+	return types.ExplanationNoMatch("no matching term"), nil
 }
 
 func (t *TermWeight) GetQuery() index.Query {
-	//TODO implement me
-	panic("implement me")
+	return t.TermQuery
 }
 
 func (t *TermWeight) Scorer(ctx index.LeafReaderContext) (index.Scorer, error) {

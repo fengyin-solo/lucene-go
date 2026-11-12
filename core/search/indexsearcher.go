@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/geange/lucene-go/core/document"
@@ -394,6 +395,87 @@ func (r *IndexSearcher) SearchLeaves(ctx context.Context, leaves []index.LeafRea
 	}
 
 	return nil
+}
+
+// Explain
+// Expert: low-level implementation method.
+// Returns an Explanation that describes how doc scored against query.
+//
+// The query goes through the exact same Rewrite and CreateWeight (with ScoreMode.COMPLETE so
+// that scores are available) pipeline used by the regular search methods, therefore the index
+// and the query objects are not modified. The global docID is mapped to the leaf reader that
+// contains it and the explanation is delegated to the query's Weight.
+//
+// A matching document returns a match Explanation whose root carries the final score and a
+// readable description of the query; child nodes describe term frequencies, norms, clause
+// matches and weight calculations. A document that does not match or has been deleted returns
+// an Explanation with IsMatch()==false. An out-of-bounds docID or a cancelled context returns
+// an explicit error.
+func (r *IndexSearcher) Explain(ctx context.Context, query index.Query, doc int) (types.Explanation, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if doc < 0 || doc >= r.reader.MaxDoc() {
+		return nil, fmt.Errorf("doc %d is out of bounds, reader maxDoc is %d", doc, r.reader.MaxDoc())
+	}
+
+	// reuse the same rewrite step as a normal search
+	rewritten, err := r.Rewrite(query)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// reuse the same Similarity and weight construction as a normal scoring search
+	weight, err := r.CreateWeight(rewritten, COMPLETE, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	// locate the leaf reader owning the global docID
+	var leaf index.LeafReaderContext
+	found := false
+	for _, leafContext := range r.leafContexts {
+		leafMaxDoc := leafContext.DocBase() + leafContext.LeafReader().MaxDoc()
+		if doc >= leafContext.DocBase() && doc < leafMaxDoc {
+			leaf = leafContext
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("no leaf reader found for doc %d", doc)
+	}
+	localDoc := doc - leaf.DocBase()
+
+	// a deleted document can never match, regardless of what the query weights say
+	liveDocs := leaf.LeafReader().GetLiveDocs()
+	if liveDocs != nil && !liveDocs.Test(uint(localDoc)) {
+		return types.ExplanationNoMatch(fmt.Sprintf("document %d is deleted", doc)), nil
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	expl, err := weight.Explain(leaf, localDoc)
+	if err != nil {
+		return nil, err
+	}
+
+	// make sure the root node carries the readable query description and the final score
+	queryDescription := weight.GetQuery().String("")
+	if !expl.IsMatch() {
+		return types.ExplanationNoMatch(fmt.Sprintf("%s doesn't match doc %d", queryDescription, doc), expl), nil
+	}
+	if queryDescription != expl.GetDescription() {
+		return types.ExplanationMatch(expl.GetValue(), queryDescription+", result of:", expl), nil
+	}
+	return expl, nil
 }
 
 func (r *IndexSearcher) CreateWeight(query index.Query, scoreMode index.ScoreMode, boost float64) (index.Weight, error) {

@@ -246,6 +246,57 @@ func (b *BM25Scorer) Score(freq float64, norm int64) float64 {
 	return b.weight - b.weight/(1.0+freq*normInverse)
 }
 
+// Explain
+// Describes the BM25 score computation: the root value is identical to Score(freq, norm),
+// and the child nodes expose the idf statistics, the query boost, the term frequency and
+// the document length (norm) based normalization.
+func (b *BM25Scorer) Explain(freq types.Explanation, norm int64) (types.Explanation, error) {
+	freqValue, err := explanationFloatValue(freq)
+	if err != nil {
+		return nil, err
+	}
+
+	normByte := byte(norm & 0xFF)
+	normInverse := b.cache[normByte]
+	fieldLength := LENGTH_TABLE[normByte]
+
+	tfNormValue := (freqValue * normInverse) / (1.0 + freqValue*normInverse)
+	tfNorm := types.ExplanationMatch(tfNormValue,
+		"tfNorm, computed as (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * fieldLength / avgFieldLength)) from:",
+		freq,
+		types.ExplanationMatch(normInverse,
+			"fieldLength, computed from norm, inversed as 1 / (k1 * ((1 - b) + b * fieldLength / avgFieldLength)) where avgFieldLength is",
+			types.ExplanationMatch(b.avgDocLength, "avgFieldLength"),
+			types.ExplanationMatch(float64(fieldLength), "fieldLength")))
+
+	boostExpl := types.ExplanationMatch(b.boost, "boost")
+	idfValue, ok := b.idf.GetValue().(float64)
+	if !ok {
+		return nil, fmt.Errorf("idf explanation value is not a float64")
+	}
+	idfBoost := types.ExplanationMatch(idfValue*b.boost, "idf * boost", b.idf, boostExpl)
+
+	score := idfBoost.GetValue().(float64) * tfNormValue
+	return types.ExplanationMatch(score,
+		fmt.Sprintf("score(freq=%v), product of:", freq.GetValue()), idfBoost, tfNorm), nil
+}
+
+// explanationFloatValue coerces the numeric value carried by an Explanation to float64.
+func explanationFloatValue(e types.Explanation) (float64, error) {
+	switch v := e.GetValue().(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("unsupported explanation value type %T", e.GetValue())
+	}
+}
+
 // Implemented as log(1 + (docCount - docFreq + 0.5)/(docFreq + 0.5)).
 func idf(docFreq, docCount int64) float64 {
 	return math.Log(1 + (float64(docCount-docFreq)+0.5)/(float64(docFreq)+0.5))

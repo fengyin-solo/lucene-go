@@ -154,8 +154,10 @@ func (p *PostingOutputs) Equal(a, b *PostingOutput) bool {
 }
 
 func (p *PostingOutputs) Hash(v *PostingOutput) int64 {
-	//TODO implement me
-	panic("implement me")
+	if v == nil {
+		return 0
+	}
+	return v.Hash()
 }
 
 func (p *PostingOutputs) IsNoOutput(v *PostingOutput) bool {

@@ -342,10 +342,16 @@ func (r *ReqOptSumScorer) Score() (float64, error) {
 		if err != nil {
 			return 0, err
 		}
-		if match, _ := r.optTwoPhase.Matches(); r.optTwoPhase != nil && optScorerDoc == curDoc && match == false {
-			optScorerDoc, err = r.optApproximation.NextDoc(context.Background())
-			if err != nil {
-				return 0, err
+		if r.optTwoPhase != nil && optScorerDoc == curDoc {
+			match, matchErr := r.optTwoPhase.Matches()
+			if matchErr != nil {
+				return 0, matchErr
+			}
+			if !match {
+				optScorerDoc, err = r.optApproximation.NextDoc(context.Background())
+				if err != nil {
+					return 0, err
+				}
 			}
 		}
 	}
