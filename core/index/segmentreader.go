@@ -167,6 +167,13 @@ func (s *SegmentReader) Directory() store.Directory {
 	return s.si.Info().Dir()
 }
 
+// GetSegmentName
+// Returns the name of the segment this reader is reading. The name is unique
+// within the owning directory and is the file-name prefix of the segment.
+func (s *SegmentReader) GetSegmentName() string {
+	return s.si.Info().Name()
+}
+
 func (s *SegmentReader) NumDocs() int {
 	// Don't call ensureOpen() here (it could affect performance)
 	return s.numDocs

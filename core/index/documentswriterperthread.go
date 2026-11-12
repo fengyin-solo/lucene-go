@@ -228,6 +228,12 @@ func (d *DocumentsWriterPerThread) flush(ctx context.Context, flushNotifications
 		d.hasFlushed.Store(true)
 	}()
 
+	// An indexing thread without buffered documents must not publish a
+	// zero-document segment. The commit simply carries no segment for it.
+	if d.numDocsInRAM.Load() == 0 {
+		return nil, nil
+	}
+
 	if err := d.segmentInfo.SetMaxDoc(int(d.numDocsInRAM.Load())); err != nil {
 		return nil, err
 	}

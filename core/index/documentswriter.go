@@ -143,7 +143,12 @@ func (d *DocumentsWriter) doFlush(ctx context.Context, flushingDWPT *DocumentsWr
 		if err != nil {
 			return false, err
 		}
-		d.ticketQueue.AddSegment(ticket, newSegment)
+		if newSegment == nil {
+			// Empty DWPT: no segment is published by this ticket.
+			ticket.markNoSegment()
+		} else {
+			d.ticketQueue.AddSegment(ticket, newSegment)
+		}
 		//
 		//d.subtractFlushedNumDocs(int64(flushingDocsInRam))
 		if (len(flushingDWPT.PendingFilesToDelete()) == 0) == false {

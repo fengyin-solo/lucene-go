@@ -83,6 +83,12 @@ func (s *StoredFieldsConsumer) Flush(ctx context.Context, state *index.SegmentWr
 		return err
 	}
 
+	// No document ever started a stored-fields writer (e.g. an empty segment or
+	// a segment without stored fields), so there is nothing to finish or close.
+	if s.writer == nil {
+		return nil
+	}
+
 	if err := s.writer.Finish(ctx, state.FieldInfos, maxDoc); err != nil {
 		return err
 	}

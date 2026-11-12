@@ -1537,6 +1537,16 @@ func (c *IndexWriterConfig) getSoftDeletesField() string {
 	return c.softDeletesField
 }
 
+// SetSoftDeletesField
+// Expert: sets the soft-deletes field used by this writer. Documents that are
+// soft-deleted remain readable unless they are also hard-deleted. This must be
+// set before any document is indexed; the field is recorded as doc values in
+// the index. Pass an empty string to disable soft deletes (the default).
+func (c *IndexWriterConfig) SetSoftDeletesField(field string) *IndexWriterConfig {
+	c.softDeletesField = field
+	return c
+}
+
 // SetIndexSort
 // Set the Sort order to use for all (flushed and merged) segments.
 func (c *IndexWriterConfig) SetIndexSort(sort index.Sort) error {

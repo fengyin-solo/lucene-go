@@ -131,6 +131,14 @@ func (t *FlushTicket) setSegment(segment *FlushedSegment) {
 	t.segment = segment
 }
 
+// markNoSegment records that this ticket carries no flushed segment, e.g.
+// an empty indexing thread that was part of a full flush.
+func (t *FlushTicket) markNoSegment() {
+	t.Lock()
+	defer t.Unlock()
+	t.hasSegment = false
+}
+
 func (t *FlushTicket) setFailed() {
 	t.failed = true
 }
